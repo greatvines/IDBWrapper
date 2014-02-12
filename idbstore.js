@@ -1123,6 +1123,10 @@
      *  iteration has ended
      * @param {Function} [options.onError=throw] A callback to be called
      *  if an error occurred during the operation.
+     * @param {Number} [options.pageSize] stop retrieving when this number of
+     *      records has been collected
+     * @param {Number} [options.pageNum] (1-based) skip "pageSize * (pageNum - 1)"
+     * 		number of records before starting to collect records
      * @returns {IDBTransaction} The transaction used for this operation.
      */
     iterate: function (onItem, options) {
@@ -1134,7 +1138,9 @@
         keyRange: null,
         writeAccess: false,
         onEnd: null,
-        onError: defaultErrorHandler
+        onError: defaultErrorHandler,
+        pageSize: 0,
+        pageNum: 0
       }, options || {});
 
       var directionType = options.order.toLowerCase() == 'desc' ? 'PREV' : 'NEXT';
@@ -1148,6 +1154,8 @@
       if (options.index) {
         cursorTarget = cursorTarget.index(options.index);
       }
+      var recordCount = 0;
+      var skipDone = false;
 
       cursorTransaction.oncomplete = function () {
         if (!hasSuccess) {
@@ -1168,9 +1176,23 @@
       cursorRequest.onsuccess = function (event) {
         var cursor = event.target.result;
         if (cursor) {
-          onItem(cursor.value, cursor, cursorTransaction);
-          if (options.autoContinue) {
-            cursor['continue']();
+          if (!skipDone && options.pageNum > 1 && options.pageSize > 0) {
+            var toSkip = (options.pageNum - 1) * options.pageSize;
+            cursor['advance'](toSkip);
+            skipDone = true;
+          } else {
+            onItem(cursor.value, cursor, cursorTransaction);
+            recordCount++;
+            if (options.autoContinue) {
+              if (options.pageSize > 0) {
+                if (recordCount < options.pageSize)
+                  cursor['continue']();
+                else
+                  hasSuccess = true;
+              } else {
+                cursor['continue']();
+              }
+            }
           }
         } else {
           hasSuccess = true;
